@@ -3,9 +3,10 @@ package top.oxff;
 import burp.api.montoya.BurpExtension;
 import burp.api.montoya.MontoyaApi;
 import top.oxff.controller.ByPassHttpHandler;
+import top.oxff.ui.BurpContextMenu;
 
-public class ByPassWF  implements BurpExtension {
-    private static final String EXTENSION_NAME = "bypass wf";
+public class BigCharsOnHttpRequest implements BurpExtension {
+    private static final String EXTENSION_NAME = "BigCharsOnHttpRequest";
     private static final String EXTENSION_VERSION = "1.0";
     private static final String EXTENSION_DESCRIPTION = "bypass wf";
     private static final String EXTENSION_AUTHOR = "oxff";
@@ -25,7 +26,7 @@ public class ByPassWF  implements BurpExtension {
         montoyaApi.logging().logToOutput("Description: " + EXTENSION_DESCRIPTION);
 
         api.http().registerHttpHandler(new ByPassHttpHandler());
-
+        api.userInterface().registerContextMenuItemsProvider(new BurpContextMenu(api));
 //        api.userInterface().registerContextMenuItemsProvider(new HTTPHistoryFilterContextMenuItemsProvider(api));
     }
 }

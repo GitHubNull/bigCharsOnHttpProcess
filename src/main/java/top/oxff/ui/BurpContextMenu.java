@@ -8,14 +8,12 @@ import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.logging.Logging;
 import burp.api.montoya.ui.contextmenu.ContextMenuEvent;
 import burp.api.montoya.ui.contextmenu.ContextMenuItemsProvider;
-import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
-import burp.api.montoya.ui.editor.HttpRequestEditor;
+import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse.SelectionContext;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class BurpContextMenu  implements ContextMenuItemsProvider {
     private final MontoyaApi api;
@@ -35,55 +33,47 @@ public class BurpContextMenu  implements ContextMenuItemsProvider {
             return null;
         }
 
-        Optional<MessageEditorHttpRequestResponse> messageEditorHttpRequestResponse = event.messageEditorRequestResponse();
-        if (!messageEditorHttpRequestResponse.isPresent()) {
-            return null;
-        }
-        //messageEditorHttpRequestResponse
-        //messageEditorHttpRequestResponse
-
-        // get HttpRequestResponse from messageEditorHttpRequestResponse
-        HttpRequestResponse httpRequestResponse = messageEditorHttpRequestResponse.get().requestResponse();
-        if (httpRequestResponse == null) {
-            return null;
-        }
-
-        HttpRequest httpRequest = httpRequestResponse.request();
-        if (httpRequest == null) {
-            return null;
-        }
-        ByteArray body = httpRequest.body();
-        if (body == null || body.length() == 0) {
-            return null;
-        }
-
-        // get mouse position in request
-        int caretPosition = messageEditorHttpRequestResponse.get().caretPosition();
-        if (caretPosition == 0) {
-            return null;
-        }
-
-        // get body begin index
-        int bodyBeginIndex = httpRequest.bodyOffset();
-        if (0 == bodyBeginIndex || bodyBeginIndex > caretPosition){
-            return null;
-        }
-
-        if (body.length() < caretPosition - bodyBeginIndex) {
-            return null;
-        }
-
-
         List<Component> components = new ArrayList<>();
-        JMenuItem item = new JMenuItem("bigCharsInHttpRequestHandler");
-        item.addActionListener(e -> {
-            // pop dialog to config big chars args
-            BigCharsDialog dialog = new BigCharsDialog(api, httpRequestResponse, caretPosition);
-            dialog.showDialog();
+        event.messageEditorRequestResponse().ifPresent(messageEditorHttpRequestResponse -> messageEditorHttpRequestResponse.selectionOffsets().ifPresent(selectionOffsets -> {
+            int startIndexInclusive = selectionOffsets.startIndexInclusive();
+            int endIndexExclusive = selectionOffsets.endIndexExclusive();
+            if (startIndexInclusive <= 0 || endIndexExclusive <= 0 || startIndexInclusive >= endIndexExclusive) {
+                return;
+            }
+            SelectionContext selectionContext = messageEditorHttpRequestResponse.selectionContext();
+            if (selectionContext != SelectionContext.REQUEST){
+                return;
+            }
+            HttpRequestResponse httpRequestResponse = messageEditorHttpRequestResponse.requestResponse();
+            if (null == httpRequestResponse){
+                return;
+            }
+            HttpRequest httpRequest = httpRequestResponse.request();
+            if (null == httpRequest){
+                return;
+            }
 
-        });
-        components.add(item);
+            ByteArray body = httpRequest.body();
+            if (body == null || body.length() == 0){
+                return;
+            }
 
+            ByteArray requestByteArray = httpRequest.toByteArray();
+            int bodyBeginIndex = httpRequest.bodyOffset();
+
+            if (startIndexInclusive < bodyBeginIndex || endIndexExclusive > requestByteArray.length()){
+                return;
+            }
+
+            JMenuItem item = new JMenuItem("BCC");
+            item.addActionListener(e -> {
+                // pop dialog to config big chars args
+                BigCharsDialog dialog = new BigCharsDialog(api, messageEditorHttpRequestResponse, startIndexInclusive, endIndexExclusive, httpRequest, requestByteArray);
+                dialog.showDialog();
+
+            });
+            components.add(item);
+        }));
 
         return components;
     }

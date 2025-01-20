@@ -2,18 +2,21 @@ package top.oxff.ui;
 
 import burp.api.montoya.MontoyaApi;
 import burp.api.montoya.core.ByteArray;
-import burp.api.montoya.http.message.HttpRequestResponse;
 import burp.api.montoya.http.message.requests.HttpRequest;
 import burp.api.montoya.logging.Logging;
+import burp.api.montoya.ui.contextmenu.MessageEditorHttpRequestResponse;
+import top.oxff.GlobalConst;
+import top.oxff.utils.ByteSizeHelper;
 
 import javax.swing.*;
 import java.awt.*;
 
+import static top.oxff.GlobalConst.CHAR_SIZE_CHOOSE;
+import static top.oxff.GlobalConst.INSERT_STR_FORMAT;
+
 public class BigCharsDialog extends JDialog {
 
-    private JPanel northPanel;
     private JPanel centerPanel;
-    private JPanel southPanel;
 
     ButtonGroup buttonGroup;
     JRadioButton defaultRadioButton;
@@ -22,23 +25,30 @@ public class BigCharsDialog extends JDialog {
     private final static String[] chars = {"G", "H", "J", "L", "M", "N", "Q", "R", "T", "U", "Y"};
     private final static JComboBox<String> charsComboBox = new JComboBox<>(chars);
 
-    private final static String[] charSizeChoose = {"512", "1KB", "2KB", "4KB", "8KB", "16KB", "32KB", "64KB", "128KB", "256KB", "512KB", "1MB","customSize"};
-    private final static JComboBox<String> charSizeChooseComboBox = new JComboBox<>(charSizeChoose);
-    private final static JTextField customSizeTextField = new JTextField();
+    private final static JComboBox<String> charSizeChooseComboBox = new JComboBox<>(CHAR_SIZE_CHOOSE);
+    private final static JTextField customSizeTextField = new JTextField("", 16);
 
     JButton okButton;
     JButton cancelButton;
 
     MontoyaApi api;
     Logging logger;
-    HttpRequestResponse httpRequestResponse;
-    int caretPosition;
+    MessageEditorHttpRequestResponse messageEditorHttpRequestResponse;
+    int startIndexInclusive;
+    int endIndexExclusive;
+    HttpRequest httpRequest;
+    ByteArray requestByteArray;
 
-    public BigCharsDialog(MontoyaApi api, HttpRequestResponse httpRequestResponse, int caretPosition) {
+    public BigCharsDialog(MontoyaApi api, MessageEditorHttpRequestResponse messageEditorHttpRequestResponse,
+                          int startIndexInclusive, int endIndexExclusive, HttpRequest httpRequest,
+                          ByteArray requestByteArray) {
         this.api = api;
         this.logger = api.logging();
-        this.httpRequestResponse = httpRequestResponse;
-        this.caretPosition = caretPosition;
+        this.messageEditorHttpRequestResponse = messageEditorHttpRequestResponse;
+        this.startIndexInclusive = startIndexInclusive;
+        this.endIndexExclusive = endIndexExclusive;
+        this.httpRequest = httpRequest;
+        this.requestByteArray = requestByteArray;
 
         initUI();
     }
@@ -47,8 +57,8 @@ public class BigCharsDialog extends JDialog {
         setTitle("Big Chars Config");
         setLayout(new BorderLayout());
 
-        northPanel = new JPanel();
-        northPanel.setLayout(new FlowLayout());
+        JPanel northPanel = new JPanel();
+        northPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
 
         buttonGroup = new ButtonGroup();
 
@@ -75,7 +85,7 @@ public class BigCharsDialog extends JDialog {
         add(northPanel, BorderLayout.NORTH);
 
         centerPanel = new JPanel();
-        centerPanel.setLayout(new FlowLayout());
+        centerPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
         
         centerPanel.add(new JLabel("Char:"));
         centerPanel.add(charsComboBox);
@@ -86,8 +96,9 @@ public class BigCharsDialog extends JDialog {
         centerPanel.add(customSizeTextField);
 
         add(centerPanel, BorderLayout.CENTER);
+        disableCustomConfig();
 
-        southPanel = new JPanel();
+        JPanel southPanel = new JPanel();
         southPanel.setLayout(new FlowLayout());
         okButton = new JButton("OK");
         okButton.addActionListener(e -> {
@@ -100,9 +111,7 @@ public class BigCharsDialog extends JDialog {
         });
 
         cancelButton = new JButton("Cancel");
-        cancelButton.addActionListener(e -> {
-            dispose();
-        });
+        cancelButton.addActionListener(e -> dispose());
 
         southPanel.add(okButton);
         southPanel.add(cancelButton);
@@ -114,46 +123,75 @@ public class BigCharsDialog extends JDialog {
     }
 
     private void processCustomConfig() {
-        String charStr = charsComboBox.getSelectedItem().toString();
+        String charSizeChoose = (String) charSizeChooseComboBox.getSelectedItem();
+        if ("customSize".equals(charSizeChoose)){
+            String customSize = customSizeTextField.getText();
+            if (customSize.isEmpty()){
+                logger.logToOutput("Custom size can not be empty");
+                return;
+            }
+            int customSizeInt;
+            try {
+                customSizeInt = ByteSizeHelper.getByteSize(customSize);
+            }catch (Exception e){
+                logger.logToOutput("Custom size is not valid");
+                return;
+            }
+            if(-1 == ByteSizeHelper.getByteSize(customSize)){
+                logger.logToOutput("Custom size is not valid");
+                return;
+            }
+            String charStr = (String) charsComboBox.getSelectedItem();
+            String insertStr = INSERT_STR_FORMAT.formatted(customSizeInt, charStr);
 
+            ByteArray insertData = ByteArray.byteArray(insertStr);
+            ByteArray topOfRequest = requestByteArray.subArray(0, startIndexInclusive);
+            ByteArray bottomOfRequest = requestByteArray.subArray(endIndexExclusive, requestByteArray.length());
+            ByteArray newRequest = topOfRequest.withAppended(insertData).withAppended(bottomOfRequest);
+            HttpRequest newHttpRequest = HttpRequest.httpRequest(newRequest);
+            messageEditorHttpRequestResponse.setRequest(newHttpRequest);
+        }else {
+            String charStr = (String) charsComboBox.getSelectedItem();
+            int charSize = GlobalConst.CHAR_SIZE_MAP.get((String)charSizeChooseComboBox.getSelectedItem());
+            if (charSize <= -1){
+                logger.logToOutput("Char size is not valid");
+            }
+            String insertStr = INSERT_STR_FORMAT.formatted(charSize, charStr);
+
+            ByteArray insertData = ByteArray.byteArray(insertStr);
+            ByteArray topOfRequest = requestByteArray.subArray(0, startIndexInclusive);
+            ByteArray bottomOfRequest = requestByteArray.subArray(endIndexExclusive, requestByteArray.length());
+            ByteArray newRequest = topOfRequest.withAppended(insertData).withAppended(bottomOfRequest);
+            HttpRequest newHttpRequest = HttpRequest.httpRequest(newRequest);
+            messageEditorHttpRequestResponse.setRequest(newHttpRequest);
+        }
     }
 
     private void processDefaultConfig() {
         String charStr = "R";
         int charSize = 1024 * 1024;
-        String insertStr = "{{__#%d%s#__}}".formatted(charSize, charStr);
+        String insertStr = INSERT_STR_FORMAT.formatted(charSize, charStr);
 
         ByteArray insertData = ByteArray.byteArray(insertStr);
-        HttpRequest httpRequest = httpRequestResponse.request();
-        ByteArray bodyArray = httpRequest.body();
-        // 计算插入位置相对于 body 的偏移量
-        int insertOffset = caretPosition - httpRequest.bodyOffset();
-        ByteArray bodyLeft = bodyArray.subArray(0, insertOffset);
-        ByteArray bodyRight = bodyArray.subArray(insertOffset, bodyArray.length());
-        ByteArray newBody = bodyLeft.withAppended(insertData).withAppended(bodyRight);
-        httpRequest = httpRequest.withBody(newBody);
-
-        // set back
-
+        ByteArray topOfRequest = requestByteArray.subArray(0, startIndexInclusive);
+        ByteArray bottomOfRequest = requestByteArray.subArray(endIndexExclusive, requestByteArray.length());
+        ByteArray newRequest = topOfRequest.withAppended(insertData).withAppended(bottomOfRequest);
+        HttpRequest newHttpRequest = HttpRequest.httpRequest(newRequest);
+        messageEditorHttpRequestResponse.setRequest(newHttpRequest);
     }
 
     private void enableCustomConfig() {
-        customRadioButton.setSelected(true);
-        customRadioButton.setEnabled(true);
-        customSizeTextField.setEnabled(true);
-        charSizeChooseComboBox.setEnabled(true);
+        centerPanel.setEnabled(true);
         charsComboBox.setEnabled(true);
-        customSizeTextField.setText("");
-        charSizeChooseComboBox.setSelectedIndex(0);
-        charsComboBox.setSelectedIndex(0);
+        charSizeChooseComboBox.setEnabled(true);
+        customSizeTextField.setEnabled(true);
     }
 
     private void disableCustomConfig() {
-        customRadioButton.setSelected(false);
-        customRadioButton.setEnabled(false);
-        customSizeTextField.setEnabled(false);
-        charSizeChooseComboBox.setEnabled(false);
+        centerPanel.setEnabled(false);
         charsComboBox.setEnabled(false);
+        charSizeChooseComboBox.setEnabled(false);
+        customSizeTextField.setEnabled(false);
     }
 
     public void showDialog(){
